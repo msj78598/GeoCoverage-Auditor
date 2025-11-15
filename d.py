@@ -37,8 +37,8 @@ CATALOG_URL = "https://sh.dataspace.copernicus.eu/api/v1/catalog/1.0.0/search"
 TOKEN_URL   = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
 PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
 
-# 🔍 حجم المشهد حول العداد (كلما قل الرقم زاد التقريب)
-SCENE_SIZE_M = 800        # مثلاً 800 م × 800 م؛ غيّرها حسب ما يناسبك (500، 300، ...)
+# 🔍 حجم المشهد حول العداد (قلّلناه أكثر لتقريب شديد على الموقع)
+SCENE_SIZE_M = 250        # جرّب 250 أو حتى 150 لو تبغى أقوى تقريب
 IMG_SIZE_PX  = 512        # حجم الصورة
 
 
@@ -213,7 +213,7 @@ def download_image(lat: float, lon: float, meter_id: str,
                    timeout: int = 30):
     """
     تنزيل مشهد Sentinel-2 True Color حول العداد،
-    مع رسم علامة + حمراء في مركز الصورة (موقع العداد).
+    مع رسم علامة حمراء واضحة في مركز الصورة (موقع العداد).
     """
     ensure_output_dir()
     meter_folder = os.path.join(OUTPUT_IMG_DIR, str(meter_id))
@@ -274,13 +274,23 @@ function evaluatePixel(s){
         img_bytes = io.BytesIO(r.content)
         img = Image.open(img_bytes).convert("RGB")
 
-        # 🔴 علامة + حمراء في مركز الصورة (نقطة العداد)
+        # 🔴 علامة أوضح: + سميكة + دائرة حمراء في المركز
         draw = ImageDraw.Draw(img)
         cx, cy = IMG_SIZE_PX // 2, IMG_SIZE_PX // 2
-        msize = 14
-        color = (255, 0, 0)
-        draw.line([(cx - msize, cy), (cx + msize, cy)], fill=color, width=2)
-        draw.line([(cx, cy - msize), (cx, cy + msize)], fill=color, width=2)
+        line_len = 26      # طول أذرع علامة +
+        line_w   = 5       # سماكة الخط
+        color    = (255, 0, 0)
+
+        # خطوط +
+        draw.line([(cx - line_len, cy), (cx + line_len, cy)], fill=color, width=line_w)
+        draw.line([(cx, cy - line_len), (cx, cy + line_len)], fill=color, width=line_w)
+
+        # دائرة صغيرة في المركز
+        radius = 8
+        draw.ellipse(
+            [(cx - radius, cy - radius), (cx + radius, cy + radius)],
+            outline=color, width=3
+        )
 
         img.save(img_path)
         return img_path
@@ -424,7 +434,6 @@ def main():
 
     st.title("📡 نظام تقدير نشاط العدادات باستخدام صور الأقمار الصناعية")
 
-    # 🔑 استخدم مفاتيح مختلفة للـ date_input لتفادي StreamlitDuplicateElementId
     with st.sidebar:
         st.header("الإعدادات")
 
@@ -494,7 +503,6 @@ def main():
             change_pct = round(change_score * 100, 1)
 
             # 2) حفظ منحنى NDVI + إضافته للـ gallery
-            ndvi_plot_path = None
             if len(months) > 0 and len(ndvi_values) == len(months):
                 ndvi_plot_path = save_ndvi_plot(meter_id, months, ndvi_values)
                 gallery[meter_id].append({
@@ -523,7 +531,7 @@ def main():
                     "img_path": img_path,
                 })
 
-            # 4) نسجّل النتيجة للـ Excel/HTML
+            # 4) نسجّل النتيجة
             results_rows.append({
                 "meter_id": meter_id,
                 "office": row.get("office"),
@@ -537,7 +545,7 @@ def main():
                 "status_icon": icon,
             })
 
-            # 5) عرض بطاقة الحالة وصور العداد
+            # 5) عرض البطاقة والصور
             imgs_for_meter = sorted(gallery[meter_id], key=lambda x: x["date"])
             main_img_path = None
             for inf in imgs_for_meter[::-1]:
