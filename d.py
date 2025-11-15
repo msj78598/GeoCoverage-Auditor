@@ -1,18 +1,25 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
+import os
 from datetime import date, datetime
-import geopandas as gpd
 
-# لو حاب تربط SentinelHub، فعل السطور التالية وعدّل الإعدادات في الدالة الخاصة به:
-# from sentinelhub import SHConfig, SentinelHubStatistical, DataCollection, Geometry
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+import streamlit as st
+import matplotlib.pyplot as plt
 
 # ==========================
 # إعدادات عامة للنظام
 # ==========================
 
-USE_DUMMY_DATA = True        # True = تحليل تجريبي بدون أقمار صناعية
-CHANGE_THRESHOLD = 0.15      # عتبة التغيير لتصنيف الموقع نشط
+# True = يستخدم بيانات NDVI عشوائية للتجربة (الكود يشتغل فوراً)
+# عندما تربط دالة الأقمار الصناعية الحقيقية غيّرها إلى False
+USE_DUMMY_DATA = True
+
+# عتبة التغيّر لتصنيف الموقع "نشط"
+CHANGE_THRESHOLD = 0.15
+
+# مجلد حفظ صور النتائج لكل عداد
+OUTPUT_IMG_DIR = "output_images"
 
 # أسماء الأعمدة في ملف الإكسل (كما في الصورة)
 COL_OFFICE       = "المكتب"
@@ -34,10 +41,9 @@ def load_meters_excel(file) -> gpd.GeoDataFrame:
     يقرأ ملف العدادات من Streamlit uploader ويعيده كـ GeoDataFrame
     بنفس أسلوب مشروع الفاقد في الفئة الزراعية.
     """
-    # نقرأ الملف مع التأكد من أن أرقام العدادات كنص
     df = pd.read_excel(file, dtype={COL_METER_ID: str, COL_SUBSCRIPTION: str})
 
-    # نعيد تسمية الأعمدة لأسماء موحدة
+    # إعادة تسمية الأعمدة لأسماء موحدة
     df = df.rename(columns={
         COL_OFFICE:       "office",
         COL_METER_ID:     "meter_id",
@@ -72,57 +78,49 @@ def fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date):
     الهدف منها اختبار النظام والواجهة فقط.
     """
     months = pd.date_range(start_date, end_date, freq="MS")  # بداية كل شهر
-    ndvi_values = np.random.uniform(0.1, 0.8, size=len(months))
+    # نجعل القيم فيها بعض التغيّر التدريجي عشان تكون منطقية أكثر
+    base = np.random.uniform(0.2, 0.6)
+    noise = np.random.normal(0, 0.05, size=len(months))
+    trend = np.linspace(-0.1, 0.1, len(months))
+    ndvi_values = np.clip(base + trend + noise, 0.0, 1.0)
     return months, ndvi_values
 
 
-# مثال ربط مع SentinelHub (تعدّلها حسب إعداداتك):
-"""
-def fetch_ndvi_timeseries_real(lat, lon, start_date, end_date):
-    config = SHConfig()
-    config.instance_id = "YOUR_INSTANCE_ID"
-    config.sh_client_id = "YOUR_CLIENT_ID"
-    config.sh_client_secret = "YOUR_CLIENT_SECRET"
-
-    # نقطة صغيرة حول العداد
-    point_geom = Geometry(
-        {"type": "Point", "coordinates": [lon, lat]},
-        crs="EPSG:4326"
-    )
-
-    time_interval = (start_date.isoformat(), end_date.isoformat())
-
-    request = SentinelHubStatistical(
-        aggregation=...,
-        input_data=[...],
-        geometry=point_geom,
-        config=config
-    )
-
-    stats = request.get_data()
-    # حوّل stats إلى سلسلة زمنية NDVI (تواريخ + قيم)
-    months = ...
-    ndvi_values = ...
-    return months, ndvi_values
-"""
+# ======= مكان ربط كود الأقمار الصناعية الحقيقي =======
+# هنا تحط نفس الكود اللي استخدمته في مشروع الفاقد الزراعي
+# لجلب NDVI شهري لنقطة (lat, lon).
+# مثلاً باستخدام Copernicus / SentinelHub / Google Earth Engine.
+#
+# مثال هيكل دالة (عدّلها حسب كودك):
+#
+# def fetch_ndvi_timeseries_real(lat, lon, start_date, end_date):
+#     """
+#     TODO: اربطها بكودك الحقيقي (Copernicus / Sentinel).
+#     لازم ترجع:
+#       months: list of datetime
+#       ndvi_values: numpy array of float
+#     """
+#     # استخدم st.secrets["CDSE_CLIENT_ID"] , st.secrets["CDSE_CLIENT_SECRET"]
+#     # أو غيرها من المتغيرات التي حفظتها في Secrets
+#     raise NotImplementedError("اربط هذه الدالة بكود الأقمار الصناعية الحقيقي.")
+# =====================================================
 
 
 def compute_change_score_for_meter(lat, lon, start_date, end_date):
     """
     يحسب درجة التغيّر لموقع واحد بين تاريخين.
     - يرجع:
-        change_score: رقم بين 0 و 1
+        change_score: رقم بين 0 و 1 تقريباً
         months: قائمة تواريخ
-        ndvi_values: قيم NDVI لكل شهر (لأغراض العرض فقط)
+        ndvi_values: قيم NDVI لكل شهر
     """
     if USE_DUMMY_DATA:
         months, ndvi_values = fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date)
     else:
-        # استبدلها بدالتك الحقيقية:
+        # استبدل هذا باستدعاء دالتك الحقيقية:
         # months, ndvi_values = fetch_ndvi_timeseries_real(lat, lon, start_date, end_date)
-        raise NotImplementedError("اربط دالة fetch_ndvi_timeseries_real قبل تعطيل USE_DUMMY_DATA")
+        raise NotImplementedError("غيّر USE_DUMMY_DATA إلى True أو اربط الدالة الحقيقية.")
 
-    # حساب درجة التغيّر: الفرق بين أول وآخر قيمة NDVI
     if len(ndvi_values) < 2:
         change_score = 0.0
     else:
@@ -141,9 +139,45 @@ def classify_status(change_score, threshold=CHANGE_THRESHOLD):
         return "مهجور محتمل", "⚠️"
 
 
+# ==========================
+# حفظ الصور في مجلد لكل عداد
+# ==========================
+
+def ensure_output_dirs():
+    """إنشاء مجلد رئيسي لحفظ الصور إذا لم يكن موجوداً."""
+    if not os.path.exists(OUTPUT_IMG_DIR):
+        os.makedirs(OUTPUT_IMG_DIR)
+
+
+def save_ndvi_plot(meter_id, months, ndvi_values):
+    """
+    يحفظ شكل منحنى NDVI لكل عداد داخل مجلد خاص:
+    output_images/<meter_id>/ndvi_timeseries.png
+    """
+    ensure_output_dirs()
+
+    meter_folder = os.path.join(OUTPUT_IMG_DIR, str(meter_id))
+    os.makedirs(meter_folder, exist_ok=True)
+
+    plt.figure()
+    plt.plot(months, ndvi_values, marker="o")
+    plt.title(f"NDVI Timeseries - Meter {meter_id}")
+    plt.xlabel("Date")
+    plt.ylabel("NDVI")
+    plt.grid(True)
+    plt.tight_layout()
+
+    img_path = os.path.join(meter_folder, "ndvi_timeseries.png")
+    plt.savefig(img_path)
+    plt.close()
+
+    return img_path
+
+
 def analyze_meters(gdf: gpd.GeoDataFrame, start_date: date, end_date: date) -> pd.DataFrame:
     """
     يمر على جميع العدادات ويحسب درجة التغيّر والحالة لكل واحد.
+    كما يحفظ صورة منحنى NDVI لكل عداد في مجلد مستقل.
     يرجع DataFrame بالنتائج.
     """
     results = []
@@ -156,6 +190,9 @@ def analyze_meters(gdf: gpd.GeoDataFrame, start_date: date, end_date: date) -> p
         change_score, months, ndvi_values = compute_change_score_for_meter(lat, lon, start_date, end_date)
         status, icon = classify_status(change_score)
 
+        # حفظ صورة منحنى NDVI لهذا العداد
+        img_path = save_ndvi_plot(meter_id, months, ndvi_values)
+
         results.append({
             "meter_id": meter_id,
             "office": row.get("office"),
@@ -166,11 +203,27 @@ def analyze_meters(gdf: gpd.GeoDataFrame, start_date: date, end_date: date) -> p
             "longitude": lon,
             "change_score": round(change_score, 3),
             "status": status,
-            "status_icon": icon
+            "status_icon": icon,
+            "ndvi_plot_path": img_path
         })
 
     result_df = pd.DataFrame(results)
     return result_df
+
+
+# ==========================
+# أدوات مساعدة للإكسل
+# ==========================
+
+def to_excel_bytes(df: pd.DataFrame) -> bytes:
+    """
+    يحول DataFrame إلى ملف Excel في الذاكرة لإتاحته للتحميل من Streamlit.
+    """
+    from io import BytesIO
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="results")
+    return output.getvalue()
 
 
 # ==========================
@@ -181,7 +234,10 @@ def main():
     st.set_page_config(page_title="تحليل نشاط العدادات من صور الأقمار الصناعية", layout="wide")
 
     st.title("نظام تحليل نشاط العدادات باستخدام صور الأقمار الصناعية")
-    st.write("ارفع ملف العدادات (إكسل) وسيقوم النظام بتقدير ما إذا كانت المواقع نشطة أو مهجورة اعتمادًا على التغيّر الزمني.")
+    st.write(
+        "هذا النظام يقرأ ملف العدادات، يحسب تغيّر NDVI لكل موقع عبر الزمن، "
+        "ويقدّر ما إذا كان الموقع نشطًا أو مهجورًا، مع حفظ صورة لكل حالة في مجلد مستقل."
+    )
 
     with st.sidebar:
         st.header("الإعدادات")
@@ -191,8 +247,13 @@ def main():
 
         st.markdown("---")
         st.write("وضع البيانات:")
-        st.write("- **تجريبي** إذا كان `USE_DUMMY_DATA = True` في الكود.")
-        st.write("- غيّرها إلى False واربط دالة الأقمار الصناعية لنتائج حقيقية.")
+        if USE_DUMMY_DATA:
+            st.markdown("- **تجريبي**: يستخدم NDVI عشوائي للاختبار.")
+        else:
+            st.markdown("- **حقيقي**: يتطلب ربط دالة الأقمار الصناعية.")
+
+        st.markdown("---")
+        st.write(f"سيتم حفظ صور النتائج في المجلد: `{OUTPUT_IMG_DIR}/<meter_id>/`")
 
     uploaded_file = st.file_uploader("ارفع ملف العدادات (xlsx / xls)", type=["xlsx", "xls"])
 
@@ -210,7 +271,7 @@ def main():
             st.dataframe(gdf.head(10))
 
         if st.button("بدء التحليل"):
-            with st.spinner("جاري تحليل العدادات..."):
+            with st.spinner("جاري تحليل العدادات وحفظ الصور..."):
                 results_df = analyze_meters(gdf, start_date, end_date)
 
             st.success("اكتمل التحليل")
@@ -218,11 +279,16 @@ def main():
             # عرض ملخص
             col1, col2, col3 = st.columns(3)
             col1.metric("إجمالي العدادات", len(results_df))
-            col2.metric("العدادات النشطة (مبدئيًا)", (results_df["status"] == "نشط").sum())
-            col3.metric("العدادات المهجورة المحتملة", (results_df["status"] == "مهجور محتمل").sum())
+            col2.metric("العدادات النشطة (مبدئيًا)", int((results_df["status"] == "نشط").sum()))
+            col3.metric("العدادات المهجورة المحتملة", int((results_df["status"] == "مهجور محتمل").sum()))
 
             st.subheader("نتائج تفصيلية")
-            st.dataframe(results_df)
+            st.dataframe(results_df[[
+                "status_icon", "status", "change_score",
+                "meter_id", "office", "category",
+                "subscription", "place_code",
+                "latitude", "longitude"
+            ]])
 
             # تحميل النتائج كإكسل
             excel_bytes = to_excel_bytes(results_df)
@@ -233,19 +299,26 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+            # اختيار عداد لعرض صورته
+            st.markdown("---")
+            st.subheader("عرض بصري لنتيجة عدّاد معيّن")
+
+            sel_meter = st.selectbox(
+                "اختر عدّاد لعرض منحنى NDVI (تم حفظه أيضًا في المجلد):",
+                results_df["meter_id"].astype(str).tolist()
+            )
+
+            sel_row = results_df[results_df["meter_id"].astype(str) == str(sel_meter)].iloc[0]
+            st.write(f"الحالة: {sel_row['status_icon']} {sel_row['status']} | درجة التغيّر: {sel_row['change_score']}")
+
+            img_path = sel_row["ndvi_plot_path"]
+            if os.path.exists(img_path):
+                st.image(img_path, caption=f"منحنى NDVI للعداد {sel_meter}")
+            else:
+                st.warning("لم يتم العثور على صورة لهذا العداد (تحقق من المجلد على السيرفر).")
+
     else:
         st.info("الرجاء رفع ملف العدادات للبدء.")
-
-
-def to_excel_bytes(df: pd.DataFrame) -> bytes:
-    """
-    يحول DataFrame إلى ملف Excel في الذاكرة لإتاحته للتحميل من Streamlit.
-    """
-    from io import BytesIO
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="results")
-    return output.getvalue()
 
 
 if __name__ == "__main__":
