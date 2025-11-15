@@ -12,7 +12,7 @@ from PIL import Image
 # إعدادات عامة
 # ==========================
 
-USE_DUMMY_DATA = True          # عندما تربط الدوال الحقيقية غيّرها إلى False
+USE_DUMMY_DATA = True          # غيّرها إلى False عندما تربط الدوال الحقيقية
 CHANGE_THRESHOLD = 0.15
 OUTPUT_IMG_DIR = "output_images"
 
@@ -70,38 +70,23 @@ def fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date):
 
 
 def fetch_rgb_image_dummy(lat, lon, on_date):
-    """
-    صورة تجريبية (بدون قمر صناعي): فقط تدرّج لوني مع تاريخ اليوم في العنوان.
-    الهدف أن ترى النظام يعمل بصريًا.
-    استبدل هذه الدالة بدالتك الحقيقية التي تجلب صورة من CDSE.
-    """
+    """صورة تجريبية (رمادية) – استبدلها لاحقًا بدالتك الحقيقية من CDSE."""
     img = Image.new("RGB", (256, 256), color=(120, 120, 120))
     return img
 
-
-# ======= مكان ربط كودك الحقيقي (Copernicus / CDSE) =======
-# مثال شكل التوقيع المطلوب:
-#
-# def fetch_ndvi_timeseries_real(lat, lon, start_date, end_date):
-#     # TODO: استخدم نفس كود مشروع الفاقد لجلب NDVI شهري لنقطة العداد
-#     # رجّع: months (list of datetime), ndvi_values (np.array)
-#     ...
-#
+# لو حاب تربط صور حقيقية:
 # def fetch_rgb_image_real(lat, lon, on_date):
-#     # TODO: استخدم كودك في CDSE لجلب صورة True Color (RGB) حول الإحداثيات في التاريخ المحدد
-#     # ممكن تعتمد على st.secrets["CDSE_CLIENT_ID"] و st.secrets["CDSE_CLIENT_SECRET"]
-#     # وترجع كائن PIL.Image
 #     ...
-# =========================================================
+#     return pil_image
 
 
 def compute_change_score_for_meter(lat, lon, start_date, end_date):
     if USE_DUMMY_DATA:
         months, ndvi_values = fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date)
     else:
-        # استبدل هذين السطرين بدالتك الحقيقية بعد ربطها
+        # استبدل بالنداء الحقيقي بعد ربط دالتك
         # months, ndvi_values = fetch_ndvi_timeseries_real(lat, lon, start_date, end_date)
-        raise NotImplementedError("اربط fetch_ndvi_timeseries_real ثم غيّر USE_DUMMY_DATA إلى False")
+        raise NotImplementedError("اربط دالة NDVI الحقيقية ثم غيّر USE_DUMMY_DATA إلى False")
 
     if len(ndvi_values) < 2:
         change_score = 0.0
@@ -148,27 +133,25 @@ def save_ndvi_plot(meter_id, months, ndvi_values):
 
 def save_rgb_snapshots(meter_id, lat, lon, start_date, end_date):
     """
-    يحفظ صورتين من القمر الصناعي لكل عداد:
-    - صورة عند تاريخ البداية
-    - صورة عند تاريخ النهاية
-    ترجع المسارات لاستخدامها في Streamlit.
+    يحفظ صورتين (بداية ونهاية الفترة) لكل عداد.
+    ترجع المسارات لاستخدامها لاحقًا في العرض.
+    لو أضفت صور أكثر (شهرية مثلاً) إلى نفس المجلد،
+    واجهة المجلد ستعرضها كلها تلقائياً.
     """
     ensure_output_dirs()
     meter_folder = os.path.join(OUTPUT_IMG_DIR, str(meter_id))
     os.makedirs(meter_folder, exist_ok=True)
 
-    # جلب الصور (حاليًا تجريبية)
     if USE_DUMMY_DATA:
         img_start = fetch_rgb_image_dummy(lat, lon, start_date)
         img_end = fetch_rgb_image_dummy(lat, lon, end_date)
     else:
-        # استبدل هذه بدالتك الحقيقية:
         # img_start = fetch_rgb_image_real(lat, lon, start_date)
-        # img_end = fetch_rgb_image_real(lat, lon, end_date)
-        raise NotImplementedError("اربط fetch_rgb_image_real ثم غيّر USE_DUMMY_DATA إلى False")
+        # img_end   = fetch_rgb_image_real(lat, lon, end_date)
+        raise NotImplementedError("اربط دالة الصور الحقيقية ثم غيّر USE_DUMMY_DATA إلى False")
 
     start_path = os.path.join(meter_folder, "site_start.png")
-    end_path = os.path.join(meter_folder, "site_end.png")
+    end_path   = os.path.join(meter_folder, "site_end.png")
 
     img_start.save(start_path)
     img_end.save(end_path)
@@ -226,6 +209,9 @@ def main():
 
     st.title("تحليل نشاط العدادات باستخدام صور الأقمار الصناعية")
 
+    if "open_meter_id" not in st.session_state:
+        st.session_state["open_meter_id"] = None
+
     with st.sidebar:
         st.header("الإعدادات")
 
@@ -235,12 +221,12 @@ def main():
         st.markdown("---")
         st.write("وضع البيانات:")
         if USE_DUMMY_DATA:
-            st.markdown("- **تجريبي**: NDVI وصور الموقع عشوائية (للتجربة فقط).")
+            st.markdown("- **تجريبي**: NDVI وصور الموقع افتراضية (لاختبار النظام).")
         else:
-            st.markdown("- **حقيقي**: يعتمد على دوال CDSE التي تربطها أنت.")
+            st.markdown("- **حقيقي**: يعتمد على دوال Copernicus/CDSE التي تربطها.")
 
         st.markdown("---")
-        st.write(f"سيتم حفظ الصور في مجلد: `{OUTPUT_IMG_DIR}/<meter_id>/`")
+        st.write(f"الصور تُحفظ في المجلد: `{OUTPUT_IMG_DIR}/<meter_id>/`")
 
     uploaded_file = st.file_uploader("ارفع ملف العدادات (xlsx / xls)", type=["xlsx", "xls"])
 
@@ -272,14 +258,59 @@ def main():
     c2.metric("العدادات النشطة", int((results_df["status"] == "نشط").sum()))
     c3.metric("المهجورة المحتملة", int((results_df["status"] == "مهجور محتمل").sum()))
 
+    # ========= جدول النتائج مع أيقونة مجلد =========
     st.subheader("جدول النتائج")
-    st.dataframe(results_df[[
-        "status_icon", "status", "change_score",
-        "meter_id", "office", "category",
-        "subscription", "place_code",
-        "latitude", "longitude"
-    ]])
+    st.write("اضغط على أيقونة المجلّد 📁 لعرض مجلد صور موقع العداد وتفسير النتيجة بصريًا.")
 
+    # عناوين الأعمدة
+    header_cols = st.columns([1.3, 1.2, 0.8, 1.0, 1.0, 0.6])
+    header_cols[0].markdown("**رقم العداد**")
+    header_cols[1].markdown("**الحالة**")
+    header_cols[2].markdown("**درجة التغيّر**")
+    header_cols[3].markdown("**المكتب**")
+    header_cols[4].markdown("**الفئة**")
+    header_cols[5].markdown("**📁**")
+
+    st.markdown("---")
+
+    for idx, row in results_df.iterrows():
+        cols = st.columns([1.3, 1.2, 0.8, 1.0, 1.0, 0.6])
+        cols[0].write(str(row["meter_id"]))
+        cols[1].write(f"{row['status_icon']} {row['status']}")
+        cols[2].write(row["change_score"])
+        cols[3].write(str(row.get("office", "")))
+        cols[4].write(str(row.get("category", "")))
+
+        open_folder = cols[5].button("📁", key=f"open_{idx}")
+
+        if open_folder:
+            st.session_state["open_meter_id"] = row["meter_id"]
+
+    # ====== مجلد صور العداد المختار ======
+    open_id = st.session_state.get("open_meter_id")
+    if open_id is not None:
+        st.markdown("---")
+        st.subheader(f"📁 مجلد صور موقع العداد {open_id}")
+
+        meter_folder = os.path.join(OUTPUT_IMG_DIR, str(open_id))
+        if os.path.exists(meter_folder):
+            image_files = [
+                f for f in os.listdir(meter_folder)
+                if f.lower().endswith((".png", ".jpg", ".jpeg"))
+            ]
+            image_files.sort()
+
+            if not image_files:
+                st.warning("لا توجد صور محفوظة لهذا العداد في المجلد.")
+            else:
+                for f in image_files:
+                    img_path = os.path.join(meter_folder, f)
+                    st.image(img_path, caption=f)
+        else:
+            st.warning("لم يتم العثور على مجلد لهذا العداد (تحقق من مسار الحفظ).")
+
+    # زر تحميل إكسل في الأسفل
+    st.markdown("---")
     excel_bytes = to_excel_bytes(results_df)
     st.download_button(
         label="تحميل النتائج كملف Excel",
@@ -288,41 +319,6 @@ def main():
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    st.markdown("---")
-    st.subheader("عرض بصري لعداد معيّن")
-
-    sel_meter = st.selectbox(
-        "اختر عدادًا لعرض منحنى NDVI وصور الموقع:",
-        results_df["meter_id"].astype(str).tolist()
-    )
-
-    sel_row = results_df[results_df["meter_id"].astype(str) == str(sel_meter)].iloc[0]
-
-    col_left, col_right = st.columns(2)
-
-    with col_left:
-        st.write(f"الحالة: {sel_row['status_icon']} {sel_row['status']} | درجة التغيّر: {sel_row['change_score']}")
-        if os.path.exists(sel_row["ndvi_plot_path"]):
-            st.image(sel_row["ndvi_plot_path"], caption=f"منحنى NDVI للعداد {sel_meter}")
-        else:
-            st.warning("صورة منحنى NDVI غير موجودة.")
-
-    with col_right:
-        st.write("صور موقع العداد (تجريبية الآن):")
-        imgs = []
-        caps = []
-        if os.path.exists(sel_row["site_start_path"]):
-            imgs.append(sel_row["site_start_path"])
-            caps.append("صورة بداية الفترة")
-        if os.path.exists(sel_row["site_end_path"]):
-            imgs.append(sel_row["site_end_path"])
-            caps.append("صورة نهاية الفترة")
-
-        if imgs:
-            for img_path, cap in zip(imgs, caps):
-                st.image(img_path, caption=cap)
-        else:
-            st.warning("لا توجد صور محفوظة لهذا العداد، تأكد من كود جلب الصور.")
 
 if __name__ == "__main__":
     main()
