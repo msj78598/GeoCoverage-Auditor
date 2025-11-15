@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 import os
+import math
 from datetime import date, datetime
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -12,11 +13,11 @@ from PIL import Image
 # إعدادات عامة
 # ==========================
 
-USE_DUMMY_DATA = True          # غيّرها إلى False عندما تربط الدوال الحقيقية
-CHANGE_THRESHOLD = 0.15
+USE_DUMMY_DATA = True          # غيّرها إلى False لما تربط دوال الأقمار الصناعية الحقيقية
+CHANGE_THRESHOLD = 0.15        # عتبة درجة التغير لاعتبار الموقع "نشط"
 OUTPUT_IMG_DIR = "output_images"
 
-# أسماء الأعمدة في ملف العدادات
+# أسماء الأعمدة في ملف العدادات (كما في ملفك)
 COL_OFFICE       = "المكتب"
 COL_METER_ID     = "التجهيزات"
 COL_NAME         = "الاسم"
@@ -28,10 +29,13 @@ COL_PLACE        = "مكان"
 
 
 # ==========================
-# قراءة ملف العدادات
+# تحميل ملف العدادات
 # ==========================
 
-def load_meters_excel(file) -> gpd.GeoDataFrame:
+def load_meters_excel(file) -> pd.DataFrame:
+    """
+    يقرأ ملف العدادات من Excel ويعيد DataFrame مع أعمدة موحدة الأسماء.
+    """
     df = pd.read_excel(file, dtype={COL_METER_ID: str, COL_SUBSCRIPTION: str})
 
     df = df.rename(columns={
@@ -48,20 +52,19 @@ def load_meters_excel(file) -> gpd.GeoDataFrame:
     df["latitude"] = df["latitude"].astype(float)
     df["longitude"] = df["longitude"].astype(float)
 
-    gdf = gpd.GeoDataFrame(
-        df,
-        geometry=gpd.points_from_xy(df["longitude"], df["latitude"]),
-        crs="EPSG:4326"
-    )
-    return gdf
+    return df
 
 
 # ==========================
-# دوال الأقمار الصناعية (NDVI + صور RGB)
+# دوال NDVI وصور الأقمار (تجريبية الآن)
 # ==========================
 
 def fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date):
-    months = pd.date_range(start_date, end_date, freq="MS")
+    """
+    دالة تجريبية ترجع سلسلة زمنية شهرية لـ NDVI بين تاريخين.
+    الهدف فقط اختبار النظام؛ استبدلها لاحقاً بدالتك الحقيقية.
+    """
+    months = pd.date_range(start_date, end_date, freq="MS")  # بداية كل شهر
     base = np.random.uniform(0.2, 0.6)
     noise = np.random.normal(0, 0.05, size=len(months))
     trend = np.linspace(-0.1, 0.1, len(months))
@@ -70,21 +73,24 @@ def fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date):
 
 
 def fetch_rgb_image_dummy(lat, lon, on_date):
-    """صورة تجريبية (رمادية) – استبدلها لاحقًا بدالتك الحقيقية من CDSE."""
+    """
+    صورة تجريبية (مربّع رمادي) – استبدلها لاحقاً بدالة تجلب صورة من CDSE/Sentinel.
+    """
     img = Image.new("RGB", (256, 256), color=(120, 120, 120))
     return img
 
-# لو حاب تربط صور حقيقية:
-# def fetch_rgb_image_real(lat, lon, on_date):
-#     ...
-#     return pil_image
-
 
 def compute_change_score_for_meter(lat, lon, start_date, end_date):
+    """
+    يحسب درجة التغيّر لموقع واحد بين تاريخين:
+      - change_score: فرق NDVI بين أول وآخر شهر (0–1 تقريباً)
+      - months: قائمة تواريخ
+      - ndvi_values: قيم NDVI لكل شهر
+    """
     if USE_DUMMY_DATA:
         months, ndvi_values = fetch_ndvi_timeseries_dummy(lat, lon, start_date, end_date)
     else:
-        # استبدل بالنداء الحقيقي بعد ربط دالتك
+        # هنا تستدعي دالتك الحقيقية لجلب NDVI
         # months, ndvi_values = fetch_ndvi_timeseries_real(lat, lon, start_date, end_date)
         raise NotImplementedError("اربط دالة NDVI الحقيقية ثم غيّر USE_DUMMY_DATA إلى False")
 
@@ -97,6 +103,9 @@ def compute_change_score_for_meter(lat, lon, start_date, end_date):
 
 
 def classify_status(change_score, threshold=CHANGE_THRESHOLD):
+    """
+    تصنيف مبدئي للموقع بناءً على درجة التغيّر.
+    """
     if change_score >= threshold:
         return "نشط", "✅"
     else:
@@ -107,20 +116,22 @@ def classify_status(change_score, threshold=CHANGE_THRESHOLD):
 # إدارة المجلدات وحفظ الصور
 # ==========================
 
-def ensure_output_dirs():
-    if not os.path.exists(OUTPUT_IMG_DIR):
-        os.makedirs(OUTPUT_IMG_DIR)
+def ensure_output_dir():
+    os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
 
 
 def save_ndvi_plot(meter_id, months, ndvi_values):
-    ensure_output_dirs()
+    """
+    يحفظ منحنى NDVI للعداد في صورة PNG داخل مجلد العداد.
+    """
+    ensure_output_dir()
     meter_folder = os.path.join(OUTPUT_IMG_DIR, str(meter_id))
     os.makedirs(meter_folder, exist_ok=True)
 
     plt.figure()
     plt.plot(months, ndvi_values, marker="o")
-    plt.title(f"NDVI Timeseries - Meter {meter_id}")
-    plt.xlabel("Date")
+    plt.title(f"منحنى NDVI للعداد {meter_id}")
+    plt.xlabel("التاريخ")
     plt.ylabel("NDVI")
     plt.grid(True)
     plt.tight_layout()
@@ -131,47 +142,78 @@ def save_ndvi_plot(meter_id, months, ndvi_values):
     return img_path
 
 
-def save_rgb_snapshots(meter_id, lat, lon, start_date, end_date):
+def save_site_image(meter_id, on_date, img_pil):
     """
-    يحفظ صورتين (بداية ونهاية الفترة) لكل عداد.
-    ترجع المسارات لاستخدامها لاحقًا في العرض.
-    لو أضفت صور أكثر (شهرية مثلاً) إلى نفس المجلد،
-    واجهة المجلد ستعرضها كلها تلقائياً.
+    يحفظ صورة موقع العداد لتاريخ معين داخل مجلد العداد.
     """
-    ensure_output_dirs()
+    ensure_output_dir()
     meter_folder = os.path.join(OUTPUT_IMG_DIR, str(meter_id))
     os.makedirs(meter_folder, exist_ok=True)
 
-    if USE_DUMMY_DATA:
-        img_start = fetch_rgb_image_dummy(lat, lon, start_date)
-        img_end = fetch_rgb_image_dummy(lat, lon, end_date)
-    else:
-        # img_start = fetch_rgb_image_real(lat, lon, start_date)
-        # img_end   = fetch_rgb_image_real(lat, lon, end_date)
-        raise NotImplementedError("اربط دالة الصور الحقيقية ثم غيّر USE_DUMMY_DATA إلى False")
-
-    start_path = os.path.join(meter_folder, "site_start.png")
-    end_path   = os.path.join(meter_folder, "site_end.png")
-
-    img_start.save(start_path)
-    img_end.save(end_path)
-
-    return start_path, end_path
+    date_str = on_date.strftime("%Y-%m-%d")
+    img_name = f"site_{date_str}.png"
+    img_path = os.path.join(meter_folder, img_name)
+    img_pil.save(img_path)
+    return img_path
 
 
-def analyze_meters(gdf: gpd.GeoDataFrame, start_date: date, end_date: date) -> pd.DataFrame:
+# ==========================
+# تحليل جميع العدادات + بناء جدول النتائج + مجلد الصور
+# ==========================
+
+from collections import defaultdict
+
+def analyze_meters(df: pd.DataFrame, start_date: date, end_date: date):
+    """
+    يمر على كل عداد:
+      - يحسب NDVI ودرجة التغيّر
+      - يبني مجلد صور لكل عداد (منحنى NDVI + صور لكل شهر)
+    يرجع:
+      - results_df: جدول الحالات
+      - gallery: dict  meter_id -> list of {label, date, img_path}
+    """
     results = []
+    gallery = defaultdict(list)
 
-    for idx, row in gdf.iterrows():
+    for _, row in df.iterrows():
         meter_id = row["meter_id"]
         lat = row["latitude"]
         lon = row["longitude"]
 
-        change_score, months, ndvi_values = compute_change_score_for_meter(lat, lon, start_date, end_date)
+        change_score, months, ndvi_values = compute_change_score_for_meter(
+            lat, lon, start_date, end_date
+        )
         status, icon = classify_status(change_score)
 
+        # 1) منحنى NDVI
         ndvi_plot_path = save_ndvi_plot(meter_id, months, ndvi_values)
-        site_start_path, site_end_path = save_rgb_snapshots(meter_id, lat, lon, start_date, end_date)
+        # نعتبر تاريخ المنحنى هو بداية الفترة لأغراض الترتيب
+        if len(months) > 0:
+            ndvi_date = months[0]
+        else:
+            ndvi_date = pd.to_datetime(start_date)
+
+        gallery[meter_id].append({
+            "label": "منحنى NDVI",
+            "date": ndvi_date,
+            "img_path": ndvi_plot_path,
+        })
+
+        # 2) صور لكل شهر في الفترة (تاريخ واضح + ترتيب زمني)
+        for dt in months:
+            on_date = dt.to_pydatetime().date()
+            if USE_DUMMY_DATA:
+                img_pil = fetch_rgb_image_dummy(lat, lon, on_date)
+            else:
+                # img_pil = fetch_rgb_image_real(lat, lon, on_date)
+                raise NotImplementedError("اربط دالة صور القمر الصناعي الحقيقية ثم غيّر USE_DUMMY_DATA إلى False")
+
+            img_path = save_site_image(meter_id, on_date, img_pil)
+            gallery[meter_id].append({
+                "label": "صورة قمر صناعي",
+                "date": dt,
+                "img_path": img_path,
+            })
 
         results.append({
             "meter_id": meter_id,
@@ -184,13 +226,15 @@ def analyze_meters(gdf: gpd.GeoDataFrame, start_date: date, end_date: date) -> p
             "change_score": round(change_score, 3),
             "status": status,
             "status_icon": icon,
-            "ndvi_plot_path": ndvi_plot_path,
-            "site_start_path": site_start_path,
-            "site_end_path": site_end_path,
         })
 
-    return pd.DataFrame(results)
+    results_df = pd.DataFrame(results)
+    return results_df, gallery
 
+
+# ==========================
+# أدوات الإكسل
+# ==========================
 
 def to_excel_bytes(df: pd.DataFrame) -> bytes:
     from io import BytesIO
@@ -205,115 +249,164 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 # ==========================
 
 def main():
-    st.set_page_config(page_title="تحليل نشاط العدادات من صور الأقمار الصناعية", layout="wide")
+    st.set_page_config(
+        page_title="تحليل نشاط العدادات من صور الأقمار الصناعية",
+        page_icon="📡",
+        layout="wide"
+    )
 
-    st.title("تحليل نشاط العدادات باستخدام صور الأقمار الصناعية")
+    st.title("📡 نظام تقدير نشاط العدادات باستخدام صور الأقمار الصناعية")
 
-    if "open_meter_id" not in st.session_state:
-        st.session_state["open_meter_id"] = None
-
+    # إعدادات جانبية
     with st.sidebar:
         st.header("الإعدادات")
 
-        start_date = st.date_input("تاريخ البداية", value=date(date.today().year, 1, 1))
-        end_date = st.date_input("تاريخ النهاية", value=date.today())
+        today = date.today()
+        start_date = st.date_input("تاريخ البداية", value=date(today.year, 1, 1))
+        end_date = st.date_input("تاريخ النهاية", value=today)
 
         st.markdown("---")
         st.write("وضع البيانات:")
         if USE_DUMMY_DATA:
-            st.markdown("- **تجريبي**: NDVI وصور الموقع افتراضية (لاختبار النظام).")
+            st.markdown("- **تجريبي**: NDVI وصور المواقع عشوائية (للاختبار فقط).")
         else:
-            st.markdown("- **حقيقي**: يعتمد على دوال Copernicus/CDSE التي تربطها.")
+            st.markdown("- **حقيقي**: يعتمد على دوال الأقمار الصناعية التي تربطها أنت.")
 
         st.markdown("---")
-        st.write(f"الصور تُحفظ في المجلد: `{OUTPUT_IMG_DIR}/<meter_id>/`")
+        st.write(f"سيتم حفظ صور كل عداد في المجلد: `{OUTPUT_IMG_DIR}/<رقم_العداد>/`")
 
-    uploaded_file = st.file_uploader("ارفع ملف العدادات (xlsx / xls)", type=["xlsx", "xls"])
+    uploaded_file = st.file_uploader("📁 ارفع ملف العدادات (Excel)", type=["xlsx", "xls"])
 
     if uploaded_file is None:
         st.info("الرجاء رفع ملف العدادات للبدء.")
         return
 
+    # تحميل الملف
     try:
-        gdf = load_meters_excel(uploaded_file)
+        meters_df = load_meters_excel(uploaded_file)
     except Exception as e:
         st.error(f"خطأ في قراءة الملف: {e}")
         return
 
-    st.success(f"تم تحميل الملف، عدد العدادات: {len(gdf)}")
+    st.success(f"تم تحميل الملف، عدد العدادات: {len(meters_df)}")
 
-    if st.checkbox("عرض أول 10 سجلات من الملف"):
-        st.dataframe(gdf.head(10))
+    if st.checkbox("👀 عرض أول 10 سجلات من الملف"):
+        st.dataframe(meters_df.head(10))
 
-    if not st.button("بدء التحليل"):
+    if not st.button("🚀 بدء التحليل"):
         return
 
+    # تشغيل التحليل
     with st.spinner("جاري تحليل العدادات وحفظ الصور..."):
-        results_df = analyze_meters(gdf, start_date, end_date)
+        results_df, gallery = analyze_meters(meters_df, start_date, end_date)
 
-    st.success("اكتمل التحليل")
+    st.success("✅ اكتمل التحليل")
+
+    # ملخص أعلى الصفحة
+    total_meters = len(results_df)
+    active_count = int((results_df["status"] == "نشط").sum())
+    inactive_count = int((results_df["status"] == "مهجور محتمل").sum())
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("إجمالي العدادات", len(results_df))
-    c2.metric("العدادات النشطة", int((results_df["status"] == "نشط").sum()))
-    c3.metric("المهجورة المحتملة", int((results_df["status"] == "مهجور محتمل").sum()))
-
-    # ========= جدول النتائج مع أيقونة مجلد =========
-    st.subheader("جدول النتائج")
-    st.write("اضغط على أيقونة المجلّد 📁 لعرض مجلد صور موقع العداد وتفسير النتيجة بصريًا.")
-
-    # عناوين الأعمدة
-    header_cols = st.columns([1.3, 1.2, 0.8, 1.0, 1.0, 0.6])
-    header_cols[0].markdown("**رقم العداد**")
-    header_cols[1].markdown("**الحالة**")
-    header_cols[2].markdown("**درجة التغيّر**")
-    header_cols[3].markdown("**المكتب**")
-    header_cols[4].markdown("**الفئة**")
-    header_cols[5].markdown("**📁**")
+    c1.metric("إجمالي العدادات", total_meters)
+    c2.metric("عدادات نشطة (مبدئيًا)", active_count)
+    c3.metric("عدادات مهجورة محتملة", inactive_count)
 
     st.markdown("---")
+    st.subheader("📊 جدول الحالات مع صور التغيّر")
 
-    for idx, row in results_df.iterrows():
-        cols = st.columns([1.3, 1.2, 0.8, 1.0, 1.0, 0.6])
-        cols[0].write(str(row["meter_id"]))
-        cols[1].write(f"{row['status_icon']} {row['status']}")
-        cols[2].write(row["change_score"])
-        cols[3].write(str(row.get("office", "")))
-        cols[4].write(str(row.get("category", "")))
+    # ====== عرض كل حالة: صف تفاصيل + صف صور ======
+    for _, row in results_df.iterrows():
+        meter_id = row["meter_id"]
+        status   = row["status"]
+        icon     = row["status_icon"]
+        score    = row["change_score"]
+        office   = row.get("office", "")
+        cat      = row.get("category", "")
+        sub      = row.get("subscription", "")
+        lat      = row["latitude"]
+        lon      = row["longitude"]
 
-        open_folder = cols[5].button("📁", key=f"open_{idx}")
+        change_pct = round(score * 100, 1)
 
-        if open_folder:
-            st.session_state["open_meter_id"] = row["meter_id"]
+        # --- الصف الأول: تفاصيل الحالة في "شكل جدول" ---
+        c1, c2, c3, c4, c5, c6 = st.columns([1.6, 1.4, 1.0, 1.0, 1.0, 1.4])
 
-    # ====== مجلد صور العداد المختار ======
-    open_id = st.session_state.get("open_meter_id")
-    if open_id is not None:
-        st.markdown("---")
-        st.subheader(f"📁 مجلد صور موقع العداد {open_id}")
+        c1.markdown(
+            f"**رقم العداد:** {meter_id}<br>"
+            f"**رقم الاشتراك:** {sub}",
+            unsafe_allow_html=True
+        )
+        c2.markdown(
+            f"**الحالة:** {icon} {status}",
+            unsafe_allow_html=True
+        )
+        c3.markdown(
+            f"**درجة التغيّر:** {score} ({change_pct}%)",
+            unsafe_allow_html=True
+        )
+        c4.markdown(
+            f"**المكتب:** {office}",
+            unsafe_allow_html=True
+        )
+        c5.markdown(
+            f"**الفئة:** {cat}",
+            unsafe_allow_html=True
+        )
+        c6.markdown(
+            f"[📍 الموقع](https://maps.google.com?q={lat},{lon})<br>"
+            f"Lat: {lat:.6f}<br>Lon: {lon:.6f}",
+            unsafe_allow_html=True
+        )
 
-        meter_folder = os.path.join(OUTPUT_IMG_DIR, str(open_id))
-        if os.path.exists(meter_folder):
-            image_files = [
-                f for f in os.listdir(meter_folder)
-                if f.lower().endswith((".png", ".jpg", ".jpeg"))
-            ]
-            image_files.sort()
+        # --- الصف الثاني: صور القمر الصناعي لهذا العداد ---
+        imgs = gallery.get(meter_id, [])
+        if imgs:
+            # ترتيب الصور حسب التاريخ
+            imgs_sorted = sorted(imgs, key=lambda x: x["date"])
 
-            if not image_files:
-                st.warning("لا توجد صور محفوظة لهذا العداد في المجلد.")
-            else:
-                for f in image_files:
-                    img_path = os.path.join(meter_folder, f)
-                    st.image(img_path, caption=f)
+            # نعرضها في صفوف، كل صف فيه 3 صور
+            n_per_row = 3
+            num_imgs = len(imgs_sorted)
+            rows = math.ceil(num_imgs / n_per_row)
+            idx = 0
+
+            for r in range(rows):
+                cols = st.columns(n_per_row)
+                for c in range(n_per_row):
+                    if idx >= num_imgs:
+                        break
+                    info = imgs_sorted[idx]
+                    idx += 1
+
+                    img_path = info["img_path"]
+                    if not os.path.exists(img_path):
+                        continue
+
+                    date_val = info["date"]
+                    if isinstance(date_val, (pd.Timestamp, datetime)):
+                        date_str = date_val.strftime("%Y-%m-%d")
+                    elif isinstance(date_val, date):
+                        date_str = date_val.strftime("%Y-%m-%d")
+                    else:
+                        date_str = str(date_val)
+
+                    label = info.get("label", "صورة")
+                    with cols[c]:
+                        st.image(
+                            img_path,
+                            caption=f"{label} | التاريخ: {date_str}",
+                            use_column_width=True
+                        )
         else:
-            st.warning("لم يتم العثور على مجلد لهذا العداد (تحقق من مسار الحفظ).")
+            st.info("لا توجد صور محفوظة لهذا العداد.")
 
-    # زر تحميل إكسل في الأسفل
-    st.markdown("---")
+        st.markdown("---")
+
+    # زر تحميل النتائج كإكسل
     excel_bytes = to_excel_bytes(results_df)
     st.download_button(
-        label="تحميل النتائج كملف Excel",
+        label="📥 تحميل جدول النتائج (Excel)",
         data=excel_bytes,
         file_name=f"meters_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
