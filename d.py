@@ -38,7 +38,7 @@ TOKEN_URL   = "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protoco
 PROCESS_URL = "https://sh.dataspace.copernicus.eu/api/v1/process"
 
 # 🔍 حجم المشهد حول العداد (قلّلناه أكثر لتقريب شديد على الموقع)
-SCENE_SIZE_M = 640        # جرّب 250 أو حتى 150 لو تبغى أقوى تقريب
+SCENE_SIZE_M = 1500        # جرّب 250 أو حتى 150 لو تبغى أقوى تقريب
 IMG_SIZE_PX  = 640        # حجم الصورة
 
 
